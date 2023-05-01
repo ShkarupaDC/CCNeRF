@@ -1,16 +1,16 @@
 import os
 from tqdm.auto import tqdm
-from opt import config_parser
+from .opt import config_parser
 
-from renderer import *
-from utils import *
+from .renderer import *
+from .utils import *
 from torch.utils.tensorboard import SummaryWriter
 import datetime
 
-from dataLoader import dataset_dict
+from .dataLoader import dataset_dict
 import sys
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device: torch.device = None
 
 renderer = OctreeRender_trilinear_fast
 
@@ -106,6 +106,9 @@ def render_test(args):
                                 N_vis=-1, N_samples=-1, white_bg = white_bg, ndc_ray=ndc_ray,device=device)
 
 def reconstruction(args):
+    device = torch.device(args.device)
+    if device.type == 'cuda':
+        torch.cuda.set_device(device.index)
 
     # init dataset
     dataset = dataset_dict[args.dataset_name]
@@ -118,13 +121,13 @@ def reconstruction(args):
     # init resolution
     upsamp_list = args.upsamp_list
     update_AlphaMask_list = args.update_AlphaMask_list
-    
-    
+
+
     if args.add_timestamp:
         logfolder = f'{args.basedir}/{args.expname}{datetime.datetime.now().strftime("-%Y%m%d-%H%M%S")}'
     else:
         logfolder = f'{args.basedir}/{args.expname}'
-    
+
 
     # init log file
     os.makedirs(logfolder, exist_ok=True)
@@ -162,7 +165,7 @@ def reconstruction(args):
         lr_factor = args.lr_decay_target_ratio**(1/args.n_iters)
 
     print("lr decay", args.lr_decay_target_ratio, args.lr_decay_iters)
-    
+
     optimizer = torch.optim.Adam(grad_vars, betas=(0.9,0.99))
 
     N_voxel_list = (torch.round(torch.exp(torch.linspace(np.log(args.N_voxel_init), np.log(args.N_voxel_final), len(upsamp_list)+1))).long()).tolist()[1:]
@@ -204,7 +207,7 @@ def reconstruction(args):
         optimizer.step()
 
         loss = loss.detach().item()
-        
+
         PSNRs.append(-10.0 * np.log(loss) / np.log(10.0))
         summary_writer.add_scalar('train/PSNR', PSNRs[-1], global_step=iteration)
         summary_writer.add_scalar('train/mse', loss, global_step=iteration)
@@ -260,7 +263,7 @@ def reconstruction(args):
                 lr_scale = args.lr_decay_target_ratio ** (iteration / args.n_iters)
             grad_vars = tensorf.get_optparam_groups(args.lr_init*lr_scale, args.lr_basis*lr_scale)
             optimizer = torch.optim.Adam(grad_vars, betas=(0.9, 0.99))
-        
+
 
     for k in range(1, tensorf.K[0] + 1):
         tensorf.save(f'{logfolder}/{args.expname}_{k}.th', K=k)
@@ -296,12 +299,14 @@ if __name__ == '__main__':
 
     args = config_parser()
     print(args)
+    device = torch.device(args.device)
+    if device.type == 'cuda':
+        torch.cuda.set_device(device.index)
 
     if args.export_mesh:
         export_mesh(args)
-
-    if args.render_only and (args.render_test or args.render_path):
-        render_test(args)
     else:
-        reconstruction(args)
-
+        if args.render_only and (args.render_test or args.render_path):
+            render_test(args)
+        else:
+            reconstruction(args)

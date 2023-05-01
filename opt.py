@@ -20,6 +20,7 @@ def config_parser(cmd=None):
     parser.add_argument('--downsample_test', type=float, default=1.0)
 
     parser.add_argument('--model_name', type=str, default='TensorTP')
+    parser.add_argument('--device', type=str, default='cuda', choices=['cpu', 'cuda', 'cuda:0', 'cuda:1'])
 
     # loader options
     parser.add_argument("--batch_size", type=int, default=4096)
@@ -32,7 +33,7 @@ def config_parser(cmd=None):
     # training options
     # learning rate
     parser.add_argument("--lr_init", type=float, default=2e-2,
-                        help='learning rate')    
+                        help='learning rate')
     parser.add_argument("--lr_basis", type=float, default=1e-3,
                         help='learning rate')
     parser.add_argument("--lr_decay_iters", type=int, default=-1,
@@ -47,7 +48,7 @@ def config_parser(cmd=None):
                         help='loss weight')
     parser.add_argument("--L1_weight_rest", type=float, default=0,
                         help='loss weight')
-    
+
     # model
     # volume options
     parser.add_argument("--rank_mat", type=int, action="append")

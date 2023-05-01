@@ -14,17 +14,17 @@ class CCNeRF(TensorBase):
                 vec_id = self.vecMode[i]
                 w = torch.randn(self.rank_density[0][0], self.resolution[vec_id]) * 0.2 # [R, H]
                 self.sigma_vec.append(nn.Parameter(w.view(1, self.rank_density[0][0], self.resolution[vec_id], 1))) # [1, R, H, 1]
-        
+
         if self.rank_density[0][1] > 0:
-            for i in range(3):    
+            for i in range(3):
                 mat_id_0, mat_id_1 = self.matMode[i]
                 w = torch.randn(self.rank_density[0][1], self.resolution[mat_id_1] * self.resolution[mat_id_0]) * 0.2 # [R, HW]
                 self.sigma_mat.append(nn.Parameter(w.view(1, self.rank_density[0][1], self.resolution[mat_id_1], self.resolution[mat_id_0]))) # [1, R, H, W]
-            
+
         self.sigma_vec.to(self.device)
         self.sigma_mat.to(self.device)
 
-        self.color_vec = nn.ParameterList() 
+        self.color_vec = nn.ParameterList()
         self.S_vec = nn.ParameterList()
 
         last_rank = 0
@@ -34,7 +34,7 @@ class CCNeRF(TensorBase):
 
             if rank > 0:
 
-                for i in range(3):                
+                for i in range(3):
                     vec_id = self.vecMode[i]
                     w = torch.randn(rank, self.resolution[vec_id]) * 0.2 # [R, H]
                     self.color_vec.append(nn.Parameter(w.view(1, rank, self.resolution[vec_id], 1))) # [1, R, H, 1]
@@ -48,7 +48,7 @@ class CCNeRF(TensorBase):
         self.color_vec.to(self.device)
         self.S_vec.to(self.device)
 
-        self.color_mat = nn.ParameterList() 
+        self.color_mat = nn.ParameterList()
         self.S_mat = nn.ParameterList()
 
         last_rank = 0
@@ -57,7 +57,7 @@ class CCNeRF(TensorBase):
 
             if rank > 0:
                 for i in range(3):
-                    
+
                     mat_id_0, mat_id_1 = self.matMode[i]
                     w = torch.randn(rank, self.resolution[mat_id_1] * self.resolution[mat_id_0]) * 0.2 # [R, HW]
                     self.color_mat.append(nn.Parameter(w.view(1, rank, self.resolution[mat_id_1], self.resolution[mat_id_0]))) # [1, R, H, W]
@@ -70,17 +70,17 @@ class CCNeRF(TensorBase):
 
         self.color_mat.to(self.device)
         self.S_mat.to(self.device)
-    
-    
+
+
     def get_optparam_groups(self, lr_init_spatialxyz = 0.02, lr_init_network = 0.001):
         grad_vars = []
-        
+
         grad_vars.extend([
             {'params': self.sigma_vec, 'lr': lr_init_spatialxyz},
             {'params': self.color_vec, 'lr': lr_init_spatialxyz},
             {'params': self.S_vec, 'lr': lr_init_network},
         ])
-    
+
         grad_vars.extend([
             {'params': self.sigma_mat, 'lr': lr_init_spatialxyz},
             {'params': self.color_mat, 'lr': lr_init_spatialxyz},
@@ -106,9 +106,9 @@ class CCNeRF(TensorBase):
             vec_feat = F.grid_sample(self.sigma_vec[offset + 0], vec_coord[[0]], align_corners=True).view(-1, N) * \
                     F.grid_sample(self.sigma_vec[offset + 1], vec_coord[[1]], align_corners=True).view(-1, N) * \
                     F.grid_sample(self.sigma_vec[offset + 2], vec_coord[[2]], align_corners=True).view(-1, N) # [r, N]
-            
+
             feat = feat + vec_feat.sum(0)
-        
+
         if self.rank_density[oid][1] > 0:
 
             offset = self.offset_density_mat[oid]
@@ -120,10 +120,10 @@ class CCNeRF(TensorBase):
                     F.grid_sample(self.sigma_mat[offset + 2], mat_coord[[2]], align_corners=True).view(-1, N) # [r, N]
 
             feat = feat + mat_feat.sum(0)
-        
+
         feat = feat.view(*prefix)
 
-        return feat        
+        return feat
 
 
     def compute_features(self, xyz_sampled, K=-1, is_train=False, oid=0):
@@ -141,8 +141,8 @@ class CCNeRF(TensorBase):
         # calculate first K blocks
         if K <= 0:
             K = self.K[oid]
-            
-        # loop all blocks 
+
+        # loop all blocks
         if is_train:
             outputs = []
 
@@ -180,19 +180,19 @@ class CCNeRF(TensorBase):
                 outputs.append(y)
 
             last_y = y
-        
+
         if is_train:
             outputs = torch.stack(outputs, dim=0).permute(0, 2, 1).contiguous().view(K, *prefix, -1) # [K, out_dim, NM] --> [K, N, M, out_dim]
         else:
             outputs = last_y.permute(1, 0).contiguous().view(*prefix, -1) # [out_dim, NM] --> [N, M, out_dim]
-        
+
         return outputs
 
 
-    
+
     @torch.no_grad()
     def upsample_volume_grid(self, res_target):
-        
+
         for i in range(len(self.color_vec)):
             vec_id = self.vecMode[i % 3]
             self.color_vec[i] = nn.Parameter(F.interpolate(self.color_vec[i].data, size=(res_target[vec_id], 1), mode='bilinear', align_corners=True))
@@ -202,7 +202,7 @@ class CCNeRF(TensorBase):
             self.color_mat[i] = nn.Parameter(F.interpolate(self.color_mat[i].data, size=(res_target[mat_id_1], res_target[mat_id_0]), mode='bilinear', align_corners=True))
 
         for i in range(3):
-            
+
             if self.rank_density[0][0] > 0:
                 vec_id = self.vecMode[i % 3]
                 self.sigma_vec[i] = nn.Parameter(F.interpolate(self.sigma_vec[i].data, size=(res_target[vec_id], 1), mode='bilinear', align_corners=True))
@@ -210,13 +210,13 @@ class CCNeRF(TensorBase):
             if self.rank_density[0][1] > 0:
                 mat_id_0, mat_id_1 = self.matMode[i % 3]
                 self.sigma_mat[i] = nn.Parameter(F.interpolate(self.sigma_mat[i].data, size=(res_target[mat_id_1], res_target[mat_id_0]), mode='bilinear', align_corners=True))
-        
+
         self.update_stepSize(res_target)
         print(f'[INFO] upsample volume grid: {res_target}')
 
     @torch.no_grad()
     def shrink(self, new_aabb):
-        
+
         xyz_min, xyz_max = new_aabb
         t_l, b_r = (xyz_min - self.aabb[0]) / self.units, (xyz_max - self.aabb[0]) / self.units
 
@@ -253,7 +253,7 @@ class CCNeRF(TensorBase):
         total = 0
         for idx in range(3):
             if self.rank_density[0][0] > 0:
-                total = total + torch.mean(torch.abs(self.sigma_vec[idx])) 
+                total = total + torch.mean(torch.abs(self.sigma_vec[idx]))
             if self.rank_density[0][1] > 0:
                 total = total + torch.mean(torch.abs(self.sigma_mat[idx]))
         return total

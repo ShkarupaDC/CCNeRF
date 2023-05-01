@@ -1,0 +1,12 @@
+# Python
+__pycache__
+
+# Experiments
+/log
+/data
+
+# Virtual environment
+.venv
+
+# IDE
+.vscode
