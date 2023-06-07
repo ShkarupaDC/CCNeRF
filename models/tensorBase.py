@@ -3,11 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-from shencoder import SHEncoder
+from ..shencoder import SHEncoder
 
 
 def positional_encoding(positions, freqs):
-    
+
         freq_bands = (2**torch.arange(freqs).float()).to(positions.device)  # (F,)
         pts = (positions[..., None] * freq_bands).reshape(
             positions.shape[:-1] + (freqs * positions.shape[-1], ))  # (..., DF)
@@ -34,7 +34,7 @@ class AlphaGridMask(torch.nn.Module):
         self.gridSize = torch.LongTensor([alpha_volume.shape[-1],alpha_volume.shape[-2],alpha_volume.shape[-3]]).to(self.device)
 
     def sample_alpha(self, xyz_sampled):
-        
+
         alpha_vals = F.grid_sample(self.alpha_volume, xyz_sampled.view(1,-1,1,1,3), align_corners=True).view(-1)
 
         return alpha_vals
@@ -91,9 +91,8 @@ class TensorBase(torch.nn.Module):
 
         self.init_svd_volume()
 
-
     def update_stepSize(self, gridSize):
-    
+
         self.aabbSize = self.aabb[1] - self.aabb[0]
         self.invaabbSize = 2.0 / self.aabbSize
         self.resolution = gridSize
@@ -110,7 +109,7 @@ class TensorBase(torch.nn.Module):
 
     def compute_features(self, xyz_sampled):
         pass
-    
+
     def normalize_coord(self, xyz_sampled, oid=0):
         # current object, special.
         if oid == 0:
@@ -140,7 +139,7 @@ class TensorBase(torch.nn.Module):
 
     def get_optparam_groups(self, lr_init_spatial = 0.02, lr_init_network = 0.001):
         pass
-    
+
     def get_kwargs(self, K=-1):
 
         if K <= 0:
@@ -210,14 +209,14 @@ class TensorBase(torch.nn.Module):
             alpha_volume = self.alphaMask.alpha_volume.bool().cpu().numpy()
             ckpt.update({'alphaMask.shape':alpha_volume.shape})
             ckpt.update({'alphaMask.mask':np.packbits(alpha_volume.reshape(-1))})
-            
+
         torch.save(ckpt, path)
 
     def load(self, ckpt):
         if 'alphaMask.shape' in ckpt.keys():
             length = np.prod(ckpt['alphaMask.shape'])
-            alpha_volume = torch.from_numpy(np.unpackbits(ckpt['alphaMask.mask'])[:length].reshape(ckpt['alphaMask.shape']))
-            self.alphaMask = AlphaGridMask(self.device, alpha_volume.float().to(self.device))
+            alpha_volume = torch.from_numpy(np.unpackbits(ckpt['alphaMask.mask'])[:length].reshape(ckpt['alphaMask.shape'])).float().to(self.device)
+            self.alphaMask = AlphaGridMask(self.device, alpha_volume)
             print(f'[INFO] load alpha mask: {alpha_volume.shape}')
         self.load_state_dict(ckpt['state_dict'], strict=False)
         print(f'[INFO] loaded ckpt.')
@@ -266,16 +265,16 @@ class TensorBase(torch.nn.Module):
         samples = torch.stack(torch.meshgrid(
             torch.linspace(0, 1, gridSize[0]),
             torch.linspace(0, 1, gridSize[1]),
-            torch.linspace(0, 1, gridSize[2]),
+            torch.linspace(0, 1, gridSize[2]), indexing="ij"
         ), -1).to(self.device)
+        torch.lerp(self.aabb[0], self.aabb[1], samples, out=samples)
+        # dense_xyz = self.aabb[0] * (1 - samples) + self.aabb[1] * samples
 
-        dense_xyz = self.aabb[0] * (1 - samples) + self.aabb[1] * samples
-
-        alpha = torch.zeros_like(dense_xyz[...,0])
+        alpha = torch.zeros_like(samples[...,0])
         for i in range(gridSize[0]):
-            alpha[i] = self.compute_alpha(dense_xyz[i].view(-1,3), self.stepSize).view((gridSize[1], gridSize[2]))
+            alpha[i] = self.compute_alpha(samples[i].view(-1,3), self.stepSize).view((gridSize[1], gridSize[2]))
 
-        return alpha, dense_xyz
+        return alpha, samples
 
     @torch.no_grad()
     def updateAlphaMask(self, gridSize=(200,200,200), return_aabb=True):
@@ -353,7 +352,7 @@ class TensorBase(torch.nn.Module):
             alpha_mask = alphas > 0
         else:
             alpha_mask = torch.ones_like(xyz_locs[:,0], dtype=bool)
-            
+
         sigma = torch.zeros(xyz_locs.shape[:-1], device=xyz_locs.device)
 
         if alpha_mask.any():
@@ -366,7 +365,7 @@ class TensorBase(torch.nn.Module):
                 validsigma = self.feature2density(sigma_feature)
 
                 sigma[alpha_mask] =  sigma[alpha_mask] + validsigma
-        
+
 
         alpha = 1 - torch.exp(-sigma * length).view(xyz_locs.shape[:-1])
 
@@ -388,7 +387,7 @@ class TensorBase(torch.nn.Module):
             K = self.K[0]
 
         # sample points
-        viewdirs = rays_chunk[:, 3:6]
+        viewdirs = rays_chunk[:, 3:6] # N_rays x 6 = (ray_o - 3, ray_d - 3)
         if ndc_ray:
             xyz_sampled, z_vals, ray_valid = self.sample_ray_ndc(rays_chunk[:, :3], viewdirs, is_train=is_train,N_samples=N_samples)
             dists = torch.cat((z_vals[:, 1:] - z_vals[:, :-1], torch.zeros_like(z_vals[:, :1])), dim=-1)
@@ -396,17 +395,17 @@ class TensorBase(torch.nn.Module):
             dists = dists * rays_norm
             viewdirs = viewdirs / rays_norm
         else:
-            xyz_sampled, z_vals, ray_valid = self.sample_ray(rays_chunk[:, :3], viewdirs, is_train=is_train,N_samples=N_samples)
-            dists = torch.cat((z_vals[:, 1:] - z_vals[:, :-1], torch.zeros_like(z_vals[:, :1])), dim=-1)
-        viewdirs = viewdirs.view(-1, 1, 3).expand(xyz_sampled.shape)
+            xyz_sampled, z_vals, ray_valid = self.sample_ray(rays_chunk[:, :3], viewdirs, is_train=is_train,N_samples=N_samples) # N_rays x N_samples x 3; N_rays x N_samples; N_rays x N_samples
+            dists = torch.cat((z_vals[:, 1:] - z_vals[:, :-1], torch.zeros_like(z_vals[:, :1])), dim=-1) # N_rays x N_samples
+        viewdirs = viewdirs.view(-1, 1, 3).expand(xyz_sampled.shape) # N_rays x N_samples x 3
 
 
-        sigma = torch.zeros(*xyz_sampled.shape[:-1], device=xyz_sampled.device)
+        sigma = torch.zeros(*xyz_sampled.shape[:-1], device=xyz_sampled.device) # N_rays x N_samples
 
         if is_train:
             rgb = torch.zeros(K, *xyz_sampled.shape[:-1], 3, device=xyz_sampled.device)
         else:
-            rgb = torch.zeros(*xyz_sampled.shape[:-1], 3, device=xyz_sampled.device)
+            rgb = torch.zeros(*xyz_sampled.shape[:-1], 3, device=xyz_sampled.device) # N_rays x N_samples x 3
 
 
         if is_train:
@@ -426,12 +425,12 @@ class TensorBase(torch.nn.Module):
                 validsigma = self.feature2density(sigma_feature)
 
                 sigma[ray_valid] = validsigma
-            
+
         else:
-        
-            ws = [] # [O, N]
+
+            ws = [] # [O, N]; sigmas per scene
             last_w = 0
-        
+
             for oid in range(len(self.K)):
                 xyz_model = self.normalize_coord(xyz_sampled[ray_valid], oid=oid)
 
@@ -456,7 +455,7 @@ class TensorBase(torch.nn.Module):
 
                     sigma[ray_valid_model] = sigma[ray_valid_model] + validsigma
 
-            
+
                 w = sigma.detach().clone()
                 ws.append(w - last_w)
                 last_w = w
@@ -473,7 +472,7 @@ class TensorBase(torch.nn.Module):
 
             xyz_valid = xyz_sampled[app_mask]
             dir_valid = viewdirs[app_mask]
-            
+
             # training mode only support the major object
             if is_train:
                 xyz_model = self.normalize_coord(xyz_valid, oid=0)
@@ -495,7 +494,7 @@ class TensorBase(torch.nn.Module):
 
                 for oid in range(len(self.K)):
                     xyz_model = self.normalize_coord(xyz_valid, oid=oid)
-                    color_feature = self.compute_features(xyz_model, K=K if oid == 0 else -1, is_train=is_train, oid=oid) # [Nz, C]
+                    color_feature = self.compute_features(xyz_model, K=-1, is_train=is_train, oid=oid) # [Nz, C], K if oid == 0 else -1
 
                     dir_model = self.normalize_dir(dir_valid, oid=oid)
                     N = dir_model.shape[0]
@@ -515,7 +514,7 @@ class TensorBase(torch.nn.Module):
 
         if white_bg or (is_train and torch.rand((1,))<0.5):
             rgb_map = rgb_map + (1. - acc_map[..., None])
-        
+
         rgb_map = rgb_map.clamp(0, 1)
 
         with torch.no_grad():
@@ -543,11 +542,11 @@ class TensorBase(torch.nn.Module):
             R = torch.from_numpy(R.astype(np.float32))
         else: # tensor
             R = R.float()
-        
+
         # T is the model matrix, but we want the matrix to transform rays, i.e., the inversion.
-        T = torch.inverse(T)
+        T = torch.inverse(T) # T^-1
         T = T.to(self.device)
-        R = R.T.to(self.device)
+        R = R.T.to(self.device) # R^-1
 
         # handle offset
         self.offset_density_vec.append(len(self.sigma_vec))
@@ -563,14 +562,14 @@ class TensorBase(torch.nn.Module):
         self.rank_mat.extend(other.rank_mat)
         self.use_vec.extend(other.use_vec)
         self.use_mat.extend(other.use_mat)
-        
+
         # concat all parameters
         self.K.extend(other.K)
 
         self.sigma_vec.extend(other.sigma_vec)
         self.color_vec.extend(other.color_vec)
         self.S_vec.extend(other.S_vec)
-    
+
         self.sigma_mat.extend(other.sigma_mat)
         self.color_mat.extend(other.color_mat)
         self.S_mat.extend(other.S_mat)
@@ -585,7 +584,7 @@ class TensorBase(torch.nn.Module):
 
         setattr(self, f'alphaMask_{oid}', AlphaGridMask(self.device, other.alphaMask.alpha_volume))
 
-        return self       
+        return self
 
 
     @torch.no_grad()
@@ -604,7 +603,7 @@ class TensorBase(torch.nn.Module):
             importance = S_vec.detach().clone().abs() # [C, R]
             for i in range(3):
                 importance *= color_vec[i].detach().view(R, -1).norm(dim=-1).unsqueeze(0) # [R, H] --> [1, R] --> [C, R]
-            
+
             # sort by K
             sum = importance.sum(0)
 
@@ -618,7 +617,7 @@ class TensorBase(torch.nn.Module):
 
             plt.matshow(importance.cpu().numpy())
             plt.show()
-            
+
         if self.use_mat[0]:
             color_mat = [
                 torch.cat([v.data for v in self.color_mat[0::3]], dim=1),
@@ -643,8 +642,8 @@ class TensorBase(torch.nn.Module):
                 importance[:, start:end] = importance[:, start:end][:, inds]
 
             plt.matshow(importance.cpu().numpy())
-            plt.show()            
- 
+            plt.show()
+
 
     @torch.no_grad()
     def compress(self, target_rank):
@@ -674,8 +673,8 @@ class TensorBase(torch.nn.Module):
                 # second trunc the last block by r
                 importance = self.S_vec[-1].detach().clone().abs().sum(0) # [C, R] --> [R]
                 for i in range(3):
-                    importance *= self.color_vec[3 * k + i].detach().view(rank_vec[0], -1).norm(dim=-1) # [R, H] --> [R]   
-                
+                    importance *= self.color_vec[3 * k + i].detach().view(rank_vec[0], -1).norm(dim=-1) # [R, H] --> [R]
+
                 vals, inds = torch.topk(importance, r, largest=True)
 
                 self.S_vec[-1] = nn.Parameter(self.S_vec[-1].data[:, inds])
@@ -702,8 +701,8 @@ class TensorBase(torch.nn.Module):
                 # second trunc the last block by r
                 importance = self.S_mat[-1].detach().clone().abs().sum(0) # [C, R] --> [R]
                 for i in range(3):
-                    importance *= self.color_mat[3 * k + i].detach().view(rank_vec[1], -1).norm(dim=-1) # [R, HW] --> [R]   
-                
+                    importance *= self.color_mat[3 * k + i].detach().view(rank_vec[1], -1).norm(dim=-1) # [R, HW] --> [R]
+
                 vals, inds = torch.topk(importance, r, largest=True)
 
                 self.S_mat[-1] = nn.Parameter(self.S_mat[-1].data[:, inds])
@@ -712,4 +711,3 @@ class TensorBase(torch.nn.Module):
                     self.color_mat[3 * k + i] = nn.Parameter(self.color_mat[3 * k + i].data[:, inds])
 
         return self
-        

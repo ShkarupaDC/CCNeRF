@@ -1,12 +1,12 @@
 import os
 import sys
 from tqdm.auto import tqdm
-from opt import config_parser
+from .opt import config_parser
 
-from renderer import *
-from utils import *
+from .renderer import *
+from .utils import *
 
-from dataLoader import dataset_dict
+from .dataLoader import dataset_dict
 from scipy.spatial.transform import Rotation as Rot
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -76,7 +76,7 @@ def render_test(args):
 
     ### plot rank-importance map
     #tensorf.plot_rank()
-    
+
     ### 8 mics with a drum
     if False:
         drums = load_model('./log/drums_hybrid/drums_hybrid_5.th', 'CCNeRF')
@@ -121,7 +121,7 @@ def render_test(args):
         R0 = np.eye(4)
         R0[:3, :3] = Rot.from_euler('zyx', [0, 0, 0], degrees=True).as_matrix()
         T0 = T0 @ R0
-        tensorf.compose(mic, T0, R0[:3, :3])    
+        tensorf.compose(mic, T0, R0[:3, :3])
 
         T0 = np.array([
             [0.3, 0, 0, 0],
@@ -132,7 +132,7 @@ def render_test(args):
         R0 = np.eye(4)
         R0[:3, :3] = Rot.from_euler('zyx', [180, 0, 0], degrees=True).as_matrix()
         T0 = T0 @ R0
-        tensorf.compose(mic, T0, R0[:3, :3])     
+        tensorf.compose(mic, T0, R0[:3, :3])
 
         # corners
         T0 = np.array([
@@ -156,7 +156,7 @@ def render_test(args):
         R0[:3, :3] = Rot.from_euler('zyx', [-45, 0, 0], degrees=True).as_matrix()
         T0 = T0 @ R0
         tensorf.compose(mic, T0, R0[:3, :3])
-        
+
         T0 = np.array([
             [0.3, 0, 0, -0.64],
             [0, 0.3, 0, 0.64],
@@ -166,7 +166,7 @@ def render_test(args):
         R0 = np.eye(4)
         R0[:3, :3] = Rot.from_euler('zyx', [45, 0, 0], degrees=True).as_matrix()
         T0 = T0 @ R0
-        tensorf.compose(mic, T0, R0[:3, :3])    
+        tensorf.compose(mic, T0, R0[:3, :3])
 
         T0 = np.array([
             [0.3, 0, 0, 0.64],
@@ -177,7 +177,7 @@ def render_test(args):
         R0 = np.eye(4)
         R0[:3, :3] = Rot.from_euler('zyx', [-135, 0, 0], degrees=True).as_matrix()
         T0 = T0 @ R0
-        tensorf.compose(mic, T0, R0[:3, :3])  
+        tensorf.compose(mic, T0, R0[:3, :3])
 
     ### 3 chairs and a ficus around a hotdog
     if True:
@@ -236,14 +236,14 @@ def render_test(args):
         R0 = np.eye(4)
         R0[:3, :3] = Rot.from_euler('zyx', [0, 0, 0], degrees=True).as_matrix()
         T0 = T0 @ R0
-        tensorf.compose(chair, T0, R0[:3, :3])    
+        tensorf.compose(chair, T0, R0[:3, :3])
 
 
     ### Lego on Chair
     if False:
-        
+
         tensorf2 = load_model('./log/lego_hybrid/lego_hybrid_5.th', 'CCNeRF')
-        
+
         T0 = np.array([
             [0.5, 0, 0, 0],
             [0, 0.5, 0, 0],
@@ -269,12 +269,12 @@ def render_test(args):
         T0 = T0 @ R0
         tensorf.compose(tensorf2, T0, R0[:3, :3])
 
-    
+
     ### Lego on Barn
     if False:
-        
+
         tensorf2 = load_model('./log/lego_hybrid/lego_hybrid_1.th', 'CCNeRF')
-        
+
         T0 = np.array([
             [0.35, 0, 0, -1.0],
             [0, 0.35, 0, -0.15],
@@ -330,4 +330,3 @@ if __name__ == '__main__':
     print(args)
 
     render_test(args)
-
