@@ -242,7 +242,14 @@ class CCNeRF(TensorBase):
                 self.sigma_mat[i] = nn.Parameter(self.sigma_mat[i].data[...,t_l[mat_id_1]:b_r[mat_id_1],t_l[mat_id_0]:b_r[mat_id_0]])
 
         # shrink alpha grid
-        alpha = self.alphaMask.alpha_volume[:, :, t_l[2]:b_r[2], t_l[1]:b_r[1], t_l[0]:b_r[0]]
+        alpha_size = torch.tensor(self.alphaMask.alpha_volume.shape[2:][::-1], device=self.device)
+        alpha_units = self.aabbSize / alpha_size
+
+        t_l_alpha, b_r_alpha = (xyz_min - self.aabb[0]) / alpha_units, (xyz_max - self.aabb[0]) / alpha_units
+        t_l_alpha, b_r_alpha = torch.floor(t_l_alpha).long(), torch.ceil(b_r_alpha).long() + 1
+        b_r_alpha = torch.stack([b_r_alpha, alpha_size]).amin(0)
+
+        alpha = self.alphaMask.alpha_volume[:, :, t_l_alpha[2]:b_r_alpha[2], t_l_alpha[1]:b_r_alpha[1], t_l_alpha[0]:b_r_alpha[0]]
         self.alphaMask = AlphaGridMask(self.device, alpha)
 
         newSize = b_r - t_l

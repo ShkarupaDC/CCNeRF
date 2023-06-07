@@ -181,7 +181,7 @@ def reconstruction(args):
     L1_reg_weight = args.L1_weight_inital
     print("initial L1_reg_weight", L1_reg_weight)
 
-    pbar = tqdm(range(args.n_iters), miniters=args.progress_refresh_rate, file=sys.stdout)
+    pbar = tqdm(range(args.n_iters), miniters=args.progress_refresh_rate, file=sys.stdout, disable=True)
     for iteration in pbar:
 
 
